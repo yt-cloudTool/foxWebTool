@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document</title>
+</head>
+<body>
+    <input id="file_selector_0" type="file"/>
+    <button onclick="do_upload()">上传</button>
+    
+    
+    <script>
+      // 设置每个切片大小
+      const split_size = 4 * 1024 * 1024
+      
+    </script>
+    
+    <script>
+      function ajax_post (url, paramsObj) {
+        return new Promise ((resolve, reject) => {
+          let xhttp = new XMLHttpRequest()
+          xhttp.open('POST', url, true)
+          // xhttp.setRequestHeader("Content-type", "application/x-www-form-urlencoded")
+          // xhttp.setRequestHeader("Content-type", "multipart/form-data")
+          // xhttp.setRequestHeader("token", token)
+          xhttp.send(paramsObj)
+          // 回调
+          xhttp.onreadystatechange = function () {
+              if (xhttp.readyState == 4) {
+                  let s = xhttp.status
+                  if (s>= 200 && s< 300) { let resT = xhttp.responseText; let resX = xhttp.responseXML; resolve({ data: JSON.parse(resT) }) } else { reject(status)                                                                                   }
+              }
+          }
+      })
+    }
+    </script>
+    
+    <script>
+        let fileObj
+        let file_0
+        
+        // 记录当前文件名
+        let fileName = ""
+        // 记录当前文件大小
+        let fileSize = 0
+        // 记录切片数量
+        let splitNum = 0
+        // 记录返回的uid
+        let uid = ""
+        // 记录返回的服务器文件路径
+        let dir = ""
+        // 记录返回的上传操作时间
+        let timestamp = ""
+        
+        // 上传准备工作
+        function do_upload () {
+          
+          fileObj  = document.getElementById("file_selector_0")
+          file_0   = fileObj.files[0]
+          
+          fileName = fileObj.files[0].name
+          
+          // 确定切片数量
+          fileSize = fileObj.files[0].size
+          if (fileSize <= split_size) {
+            splitNum = 1
+          } else {
+            splitNum = Math.ceil(fileSize / split_size)
+          }
+          
+          // 上传文件描述信息
+          let formdata = new FormData()
+          formdata.append("filename", fileName)
+          formdata.append("sectionnum", splitNum)
+          ajax_post("http://localhost:14497/upload_concurrent/filedescribe", formdata).then((v) => {
+            if (v.data.ret == 1) {
+              uid       = v.data.uid
+              dir       = v.data.dir
+              timestamp = v.data.timestamp
+              console.log("上传文件描述信息成功 =>", v.data)
+              // 进行分段上传
+              upload()
+            } else {
+              alert("上传描述信息err1")
+            }
+          }).catch((err) => {
+            alert("上传描述信息err2")
+            console.log("上传描述信息err2 =>", err)
+          })
+        }
+        
+        function upload () {
+          // 并发上传分段
+          
+          let promiseArr = []
+          
+          // 当前切片头尾位于文件位置
+          let cur_head = 0
+          let cur_tail = 0
+          // 当前切片编号
+          let cur_index = 0
+          // 当前切片大小
+          let cur_size = 0
+          
+          for (let i=0; i<splitNum; i++) {
+            // 记录编号
+            cur_index = i
+            // 切片
+            let chunk
+            console.log("file[0] =>", file_0)
+            /* 例外 如果文件大小小于预定切片大小 */
+            if (fileSize < split_size) {
+              chunk     = file_0.slice(cur_head, fileSize)
+              cur_head  = 0
+              cur_tail  = fileSize
+              cur_size  = fileSize 
+            }
+            else {
+              /* 正常 */
+              // 文件剩余大小
+              // 如果文件剩余大小小于额定切片大小
+              if ((cur_tail + split_size) > fileSize) {
+                chunk     = file_0.slice(cur_tail, fileSize)
+                cur_size  = fileSize - cur_tail
+                console.log("chunk =>", chunk, cur_tail, fileSize, cur_size)
+              }
+              //  如果文件剩余大小大于等于额定切片大小
+              else {
+                cur_tail  = cur_tail + split_size
+                chunk     = file_0.slice(cur_head, cur_tail)
+                cur_head  = cur_head + split_size
+                cur_size  = split_size
+              }
+              console.log("cur_size =========>", cur_size)
+            }
+            
+            // Promise
+            promiseArr.push(
+              new Promise((resolve, reject) => {
+                // 加进表单
+                let formData = new FormData()
+                formData.append('uid', uid)
+                formData.append('timestamp', timestamp)
+                formData.append('dir', dir)
+                formData.append('filename', fileName)
+                formData.append('filesize', fileSize)
+                formData.append('sectionsize', cur_size)
+                formData.append('sectionindex', cur_index)
+                formData.append('sectionnum', splitNum)
+                formData.append('file', chunk)
+                ajax_post("http://localhost:14497/upload_concurrent/filereceive", formData).then((v1) => {
+                  if (v1.data.ret == 1) {
+                    console.log("切片上传成功 =>", v1.data)
+                  } else {
+                    console.log("切片上传err1 =>", v1.data)
+                  }
+                }).catch((err1) => {
+                   console.log("切片上传err2 =>", err1)
+                })
+              })
+            )
+            
+          }
+          
+          Promise.all(promiseArr).then((v2) => {
+            console.log("v =====>", v2)
+            alert(v.data.msg)
+          }).catch((err2) => {
+            console.log("err =====>", err2)
+          })
+          
+        }
+
+    </script>
+</body>
+</html>
